@@ -1,39 +1,36 @@
 #!/usr/bin/env python3
-""" 5. Implementing an expiring web cache and tracker """
-
-import redis
+"""
+web cache and tracker
+"""
 import requests
+import redis
+from functools import wraps
 
-def cache(expiration_time: int):
-    def decorator(func):
-        def wrapper(url):
-            key = f"count:{url}"
-            cache = redis.Redis()
-            content = cache.get(url)
-            if content is None:
-                r = requests.get(url)
-                content = r.content.decode()
-                cache.setex(url, expiration_time, content)
-            cache.incr(key)
-            return content
-        return wrapper
-    return decorator
+store = redis.Redis()
 
-@cache(10)
+
+def count_url_access(method):
+    """ Decorator counting how many times
+    a URL is accessed """
+    @wraps(method)
+    def wrapper(url):
+        cached_key = "cached:" + url
+        cached_data = store.get(cached_key)
+        if cached_data:
+            return cached_data.decode("utf-8")
+
+        count_key = "count:" + url
+        html = method(url)
+
+        store.incr(count_key)
+        store.set(cached_key, html)
+        store.expire(cached_key, 10)
+        return html
+    return wrapper
+
+
+@count_url_access
 def get_page(url: str) -> str:
-    """
-    Returns the HTML content of a particular URL.
-
-    Args:
-        url (str): The URL to retrieve.
-
-    Returns:
-        str: The HTML content of the URL.
-    """
-    r = requests.get(url)
-    content = r.content.decode()
-    key = f"count:{url}"
-    cache = redis.Redis()
-    cache.incr(key)
-    cache.expire(key, 10)
-    return content
+    """ Returns HTML content of a url """
+    res = requests.get(url)
+    return res.text
